@@ -12,7 +12,7 @@ A guide to installing a single-node Kubernetes cluster on a Lima VM, with k9s, H
 
 ## 0. Create the VM (macOS / Lima)
 
-> **Note:** This step is macOS-specific. If you already have a Debian/Ubuntu VM from another source, skip to step 1.
+> **Note:** This step is macOS-specific. If you already have a Ubuntu VM from another source, skip to step 1.
 
 Install Lima if you haven't already:
 
