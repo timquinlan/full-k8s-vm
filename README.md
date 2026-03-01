@@ -306,8 +306,8 @@ Install sshuttle on your Mac:
 ```bash
 brew install sshuttle
 ```
-
-Then run:
+Then run: 
+> NOTE: "fullkube" is the name of the VM we created at the start, if you named it something different adjust this command.
 
 ```bash
 sshuttle -r 127.0.0.1:$(limactl list --format '{{.SSHLocalPort}}' fullkube) 192.168.200.0/24 \
