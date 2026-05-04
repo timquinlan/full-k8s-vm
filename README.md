@@ -15,8 +15,8 @@ self-contained LoadBalancer IP assignment — no cloud provider required.
 | Guide | Ingress Implementation | API Style |
 |---|---|---|
 | [F5 NGINX Ingress](./F5_NGINX_ingress.md) | F5 NGINX Ingress Controller | `networking.k8s.io/v1 Ingress` |
-| [Traefik Ingress](./traefik-ingress.md) | Traefik | `networking.k8s.io/v1 Ingress` |
-| [Traefik Gateway API](./traefik-gateway-api.md) | Traefik | Gateway API `HTTPRoute` |
+| [Traefik Ingress](./k8s-traefik-ingress.md) | Traefik | `networking.k8s.io/v1 Ingress` |
+| [Traefik Gateway API](./k8s-traefik-gateway-api.md) | Traefik | Gateway API `HTTPRoute` |
 | [NGINX Gateway Fabric](./k8s-ngf-gateway-api.md) | NGINX Gateway Fabric | Gateway API `HTTPRoute` |
 | [Envoy Gateway](./k8s-envoy-gateway.md) | Envoy Gateway | Gateway API `HTTPRoute` |
 
