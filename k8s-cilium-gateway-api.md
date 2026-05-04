@@ -1,6 +1,6 @@
-# Kubernetes Single-Node Setup (Envoy Gateway)
+# Kubernetes Single-Node Setup (Cilium)
 
-A guide to installing a single-node Kubernetes cluster on a Lima VM, with k9s, Helm, MetalLB, and Envoy Gateway as a Gateway API controller for local testing.
+A guide to installing a single-node Kubernetes cluster on a Lima VM, with k9s, Helm, and a fully Cilium-native stack for local testing. Unlike the other guides in this collection, Cilium replaces three separate components — Flannel (CNI), MetalLB (LoadBalancer IP assignment), and a standalone Gateway API controller — with a single deployment.
 
 ## Prerequisites
 
@@ -87,8 +87,10 @@ sudo apt-mark hold kubelet kubeadm kubectl
 
 ## 4. Bootstrap the Cluster
 
+Cilium replaces kube-proxy entirely using eBPF. Tell kubeadm to skip the kube-proxy addon so it is never installed:
+
 ```bash
-sudo kubeadm init --pod-network-cidr=10.244.0.0/16
+sudo kubeadm init --skip-phases=addon/kube-proxy
 ```
 
 Set up kubeconfig for your user and allow scheduling on the control plane (required for single-node):
@@ -100,17 +102,13 @@ sudo chown $(id -u):$(id -g) $HOME/.kube/config
 kubectl taint nodes --all node-role.kubernetes.io/control-plane-
 ```
 
-Install the Flannel CNI network plugin:
-
-```bash
-kubectl apply -f https://github.com/flannel-io/flannel/releases/latest/download/kube-flannel.yml
-```
-
-Verify the node is ready:
+Verify the node status:
 
 ```bash
 kubectl get nodes
 ```
+
+> **Note:** The node will show `NotReady` at this point — this is expected. Cilium acts as the CNI and will be installed in step 6. The node will transition to `Ready` once Cilium is running.
 
 ---
 
@@ -123,19 +121,18 @@ helm version
 
 ---
 
-## 6. Gateway API with MetalLB and Envoy Gateway (VM-local testing)
+## 6. Cilium: CNI, LB-IPAM, L2 Announcements, and Gateway API (VM-local testing)
 
-On a bare-metal or VM-based cluster there is no cloud provider to assign IPs to `LoadBalancer` services, so ingress controllers will sit in `<pending>` indefinitely. MetalLB solves this. Since this is just for local testing inside the VM, we use a dummy network interface to give MetalLB a private IP range that is only visible inside the VM — no special Lima networking or WiFi bridging required.
+On a bare-metal or VM-based cluster there is no cloud provider to assign IPs to `LoadBalancer` services, and without a CNI the node cannot run workloads. In this guide Cilium handles all of it. Since this is just for local testing inside the VM, we use a dummy network interface to give Cilium a private IP range that is only visible inside the VM — no special Lima networking or WiFi bridging required.
 
-### A note on Gateway API
+### A note on the Cilium-native stack
 
-Gateway API is the successor to the `Ingress` resource. Rather than a single `Ingress` object with annotations, it separates concerns across three resources:
+In the other guides in this collection, Flannel handles pod networking, MetalLB handles LoadBalancer IP assignment and L2 announcement, and a separate controller handles Gateway API routing. Here, Cilium replaces all three:
 
-- **`GatewayClass`** — names the controller implementation (set once, cluster-scoped)
-- **`Gateway`** — defines a listener (port, protocol, TLS) and which routes can bind to it
-- **`HTTPRoute`** — defines routing rules (hostnames, paths, backends)
-
-This separation makes it easier to delegate route management to application teams while keeping infrastructure concerns with the platform team. Envoy Gateway is a CNCF project that uses Envoy Proxy as its data plane — the same proxy that underpins Istio, AWS App Mesh, and many other service mesh and API gateway products.
+- **CNI** — Cilium manages pod networking using eBPF, and also replaces kube-proxy
+- **LB-IPAM** — a `CiliumLoadBalancerIPPool` resource defines the IP range; Cilium assigns addresses from it automatically
+- **L2 Announcements** — a `CiliumL2AnnouncementPolicy` resource tells Cilium to respond to ARP requests on the dummy interface, making LoadBalancer IPs reachable inside the VM
+- **Gateway API** — Cilium's built-in Gateway API controller handles `Gateway` and `HTTPRoute` resources natively
 
 ### Create a dummy network interface
 
@@ -166,94 +163,125 @@ EOF
 sudo systemctl restart systemd-networkd
 ```
 
-### Install MetalLB
+### Install the Cilium CLI
+
+The Cilium CLI provides the `cilium` command for verifying the install, checking status, and troubleshooting. Install it on the VM:
 
 ```bash
-kubectl apply -f https://raw.githubusercontent.com/metallb/metallb/v0.14.5/config/manifests/metallb-native.yaml
-
-# Wait for MetalLB pods to be ready
-kubectl wait --namespace metallb-system --for=condition=ready pod --selector=app=metallb --timeout=90s
+CILIUM_CLI_VERSION=$(curl -s https://raw.githubusercontent.com/cilium/cilium-cli/main/stable.txt)
+ARCH=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
+curl -L -o /tmp/cilium-linux-${ARCH}.tar.gz \
+  https://github.com/cilium/cilium-cli/releases/download/${CILIUM_CLI_VERSION}/cilium-linux-${ARCH}.tar.gz
+sudo tar xzvfC /tmp/cilium-linux-${ARCH}.tar.gz /usr/local/bin
+rm /tmp/cilium-linux-${ARCH}.tar.gz
+cilium version --client
 ```
 
-Create the IP pool and advertisement config:
+### Install the Gateway API CRDs
+
+Cilium does not bundle the Gateway API CRDs. Install them before Cilium so the operator detects them on first boot and automatically creates the `cilium` GatewayClass. Cilium 1.14+ requires the experimental channel because it depends on `TLSRoute` (`gateway.networking.k8s.io/v1alpha2`), which is not included in the standard channel:
+
+```bash
+kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.2.1/experimental-install.yaml
+```
+
+Verify the CRDs are present:
+
+```bash
+kubectl get crd | grep gateway.networking.k8s.io
+```
+
+You should see `gatewayclasses`, `gateways`, `httproutes`, and `tlsroutes` among the results.
+
+### Install Cilium
+
+Add the Cilium Helm repo:
+
+```bash
+helm repo add cilium https://helm.cilium.io/ && helm repo update
+```
+
+Cilium needs to know the API server address to act as a full kube-proxy replacement. Capture it from the node, then install:
+
+```bash
+API_SERVER_IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}')
+
+helm install cilium cilium/cilium \
+  --namespace kube-system \
+  --set kubeProxyReplacement=true \
+  --set k8sServiceHost=${API_SERVER_IP} \
+  --set k8sServicePort=6443 \
+  --set l2announcements.enabled=true \
+  --set gatewayAPI.enabled=true \
+  --set operator.replicas=1
+```
+
+Wait for Cilium to be fully ready:
+
+```bash
+cilium status --wait
+```
+
+Verify the node is now `Ready`:
+
+```bash
+kubectl get nodes
+```
+
+### Configure LB-IPAM
+
+Create an IP pool pointing at the dummy interface range. Cilium will draw from this range when assigning addresses to `LoadBalancer` services:
 
 ```bash
 cat <<EOF | kubectl apply -f -
-apiVersion: metallb.io/v1beta1
-kind: IPAddressPool
+apiVersion: cilium.io/v2
+kind: CiliumLoadBalancerIPPool
 metadata:
   name: dummy-pool
-  namespace: metallb-system
 spec:
-  addresses:
-    - 192.168.200.100-192.168.200.200
----
-apiVersion: metallb.io/v1beta1
-kind: L2Advertisement
-metadata:
-  name: dummy-advert
-  namespace: metallb-system
-spec:
-  ipAddressPools:
-    - dummy-pool
-  interfaces:
-    - dummy0
+  blocks:
+    - start: "192.168.200.100"
+      stop: "192.168.200.200"
 EOF
 ```
 
-### Install Envoy Gateway
+### Configure L2 Announcements
 
-Envoy Gateway is installed via its own Helm chart, which includes the Gateway API CRDs — no separate CRD install step is required:
-
-```bash
-helm install eg oci://docker.io/envoyproxy/gateway-helm \
-  --namespace envoy-gateway-system \
-  --create-namespace \
-  --version v1.3.0
-```
-
-Wait for Envoy Gateway to be ready:
-
-```bash
-kubectl wait --namespace envoy-gateway-system \
-  --for=condition=Available deployment/envoy-gateway \
-  --timeout=90s
-```
-
-Unlike other controllers, Envoy Gateway does not automatically create a `GatewayClass` — you need to create it manually:
+Tell Cilium to respond to ARP requests for LoadBalancer IPs on the dummy interface:
 
 ```bash
 cat <<EOF | kubectl apply -f -
-apiVersion: gateway.networking.k8s.io/v1
-kind: GatewayClass
+apiVersion: cilium.io/v2alpha1
+kind: CiliumL2AnnouncementPolicy
 metadata:
-  name: eg
+  name: dummy-l2-policy
 spec:
-  controllerName: gateway.envoyproxy.io/gatewayclass-controller
+  interfaces:
+    - dummy0
+  loadBalancerIPs: true
 EOF
 ```
 
-Confirm the `GatewayClass` is accepted:
+### Confirm the GatewayClass
+
+Confirm that Cilium created a `GatewayClass` named `cilium` and that it is accepted:
 
 ```bash
 kubectl get gatewayclass
 ```
 
-You should see `eg` with `ACCEPTED` showing `True`.
+You should see `cilium` with `ACCEPTED` showing `True`.
 
 ### Create the Gateway
-
-Like NGF, Envoy Gateway provisions a separate Envoy proxy deployment and LoadBalancer service per `Gateway` object — nothing is provisioned until a Gateway is created. Apply the Gateway first and wait for the data plane service to appear:
 
 ```bash
 cat <<EOF | kubectl apply -f -
 apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway
 metadata:
-  name: eg-gateway
-  namespace: default
+  name: cilium-gateway
 spec:
-  gatewayClassName: eg
+  gatewayClassName: cilium
   listeners:
     - name: web
       port: 80
@@ -264,13 +292,13 @@ spec:
 EOF
 ```
 
-Watch for the Envoy proxy service to appear — note that unlike NGF, Envoy Gateway provisions the data plane service in the `envoy-gateway-system` namespace, not `default`, so watch all namespaces:
+Watch for Cilium to provision a `LoadBalancer` service for the gateway:
 
 ```bash
-kubectl get svc -A -w
+kubectl get svc -w
 ```
 
-Once you see a `LoadBalancer` service named `envoy-default-eg-gateway-*` with an IP from the `192.168.200.x` range, press `ctrl-c` and proceed.
+Once you see a `LoadBalancer` service named `cilium-gateway` with an IP from the `192.168.200.x` range, press `ctrl-c` and proceed.
 
 ### Deploy a test application
 
@@ -315,7 +343,7 @@ metadata:
   name: test-nginx
 spec:
   parentRefs:
-    - name: eg-gateway
+    - name: cilium-gateway
   hostnames:
     - "myapp.local"
   rules:
@@ -332,7 +360,7 @@ EOF
 Verify the `Gateway` has been programmed and the `HTTPRoute` has been accepted:
 
 ```bash
-kubectl get gateway eg-gateway
+kubectl get gateway cilium-gateway
 kubectl get httproute test-nginx
 ```
 

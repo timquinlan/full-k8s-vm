@@ -1,8 +1,9 @@
 # Kubernetes Single-Node Lab Setup
 A collection of guides for standing up a single-node Kubernetes cluster on a Lima VM,
-varying only in their ingress implementation. All guides share the same base stack
+varying in their data-plane implementation. Most guides share the same base stack
 (kubeadm, Flannel, MetalLB, k9s, Helm) and the same dummy-interface trick for
-self-contained LoadBalancer IP assignment — no cloud provider required.
+self-contained LoadBalancer IP assignment — no cloud provider required. The Cilium
+guide is the exception: it replaces Flannel and MetalLB with a fully Cilium-native stack.
 
 > **Note:** These guides use Lima to provision the VM, as it's a lightweight and
 > widely available option for macOS users. The Lima-specific step is isolated to
@@ -12,13 +13,14 @@ self-contained LoadBalancer IP assignment — no cloud provider required.
 
 ## Guides
 
-| Guide | Ingress Implementation | API Style |
+| Guide | Data-Plane Implementation | API Style |
 |---|---|---|
 | [F5 NGINX Ingress](./F5_NGINX_ingress.md) | F5 NGINX Ingress Controller | `networking.k8s.io/v1 Ingress` |
 | [Traefik Ingress](./k8s-traefik-ingress.md) | Traefik | `networking.k8s.io/v1 Ingress` |
 | [Traefik Gateway API](./k8s-traefik-gateway-api.md) | Traefik | Gateway API `HTTPRoute` |
 | [NGINX Gateway Fabric](./k8s-ngf-gateway-api.md) | NGINX Gateway Fabric | Gateway API `HTTPRoute` |
 | [Envoy Gateway](./k8s-envoy-gateway.md) | Envoy Gateway | Gateway API `HTTPRoute` |
+| [Cilium](./k8s-cilium-gateway-api.md) | Cilium (CNI + LB-IPAM + Gateway API) | Gateway API `HTTPRoute` |
 
 ## Which guide should I use?
 
@@ -39,13 +41,18 @@ approaches the newer API model.
 the same data plane used by Istio and many other cloud-native projects. A good choice
 for exploring the broader CNCF ecosystem.
 
+**Cilium** — if you want a fully Cilium-native stack where a single deployment handles
+pod networking (replacing Flannel), LoadBalancer IP assignment (replacing MetalLB), and
+Gateway API routing. The most integrated option and a good choice for exploring eBPF-based
+networking.
+
 ## Shared components
 
 All guides provision the same base environment:
 - **Lima VM** — lightweight macOS VM host (step 0 only; skip if you have your own Ubuntu VM)
 - **kubeadm** — cluster bootstrap
-- **Flannel** — CNI network plugin
+- **Flannel** — CNI network plugin (replaced by Cilium in the Cilium guide)
 - **k9s** — terminal UI for cluster management
 - **Helm** — package manager
-- **MetalLB** — bare-metal LoadBalancer IP assignment via a dummy network interface
+- **MetalLB** — bare-metal LoadBalancer IP assignment via a dummy network interface (replaced by Cilium LB-IPAM in the Cilium guide)
 - **sshuttle** — lightweight SSH tunnel for accessing the cluster from your Mac

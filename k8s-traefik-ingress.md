@@ -114,31 +114,7 @@ kubectl get nodes
 
 ---
 
-## 5. Install k9s
-
-k9s is a terminal UI for managing Kubernetes clusters. It's optional — everything can be done with `kubectl` — but it makes navigating resources, tailing logs, and inspecting pods significantly easier.
-
-```bash
-cd /tmp
-ARCH=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
-curl -LO https://github.com/derailed/k9s/releases/latest/download/k9s_Linux_${ARCH}.tar.gz
-tar -xzf k9s_Linux_${ARCH}.tar.gz
-chmod +x k9s && sudo mv k9s /usr/local/bin/
-k9s version
-```
-
-**Useful k9s keybindings:**
-
-| Key | Action |
-| --- | --- |
-| `:pod` | Jump to pod view |
-| `:namespace` | Switch namespaces |
-| `?` | Show help/keybindings |
-| `ctrl-c` | Exit |
-
----
-
-## 6. Install Helm
+## 5. Install Helm
 
 ```bash
 curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
@@ -147,7 +123,7 @@ helm version
 
 ---
 
-## 7. Ingress with MetalLB and Traefik (VM-local testing)
+## 6. Ingress with MetalLB and Traefik (VM-local testing)
 
 On a bare-metal or VM-based cluster there is no cloud provider to assign IPs to `LoadBalancer` services, so ingress controllers will sit in `<pending>` indefinitely. MetalLB solves this. Since this is just for local testing inside the VM, we use a dummy network interface to give MetalLB a private IP range that is only visible inside the VM — no special Lima networking or WiFi bridging required.
 
@@ -306,7 +282,7 @@ A successful response will show the default nginx welcome page HTML.
 
 ---
 
-## 8. Accessing the Cluster from Your Laptop (sshuttle)
+## 7. Accessing the Cluster from Your Laptop (sshuttle)
 
 For demos or browser testing from your Mac, sshuttle acts like a lightweight VPN over SSH — it makes the `192.168.200.x` subnet routable from your Mac without any changes to the VM.
 
@@ -338,3 +314,27 @@ echo "192.168.200.100 myapp.local" | sudo tee -a /etc/hosts
 ```
 
 Then `http://myapp.local` works in a browser with no port numbers. sshuttle runs in the foreground — just `ctrl-c` to stop it when done.
+
+---
+
+## 8. Install k9s (optional)
+
+k9s is a terminal UI for managing Kubernetes clusters. It's optional — everything can be done with `kubectl` — but it makes navigating resources, tailing logs, and inspecting pods significantly easier.
+
+```bash
+cd /tmp
+ARCH=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
+curl -LO https://github.com/derailed/k9s/releases/latest/download/k9s_Linux_${ARCH}.tar.gz
+tar -xzf k9s_Linux_${ARCH}.tar.gz
+chmod +x k9s && sudo mv k9s /usr/local/bin/
+k9s version
+```
+
+**Useful k9s keybindings:**
+
+| Key | Action |
+| --- | --- |
+| `:pod` | Jump to pod view |
+| `:namespace` | Switch namespaces |
+| `?` | Show help/keybindings |
+| `ctrl-c` | Exit |
