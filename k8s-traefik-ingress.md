@@ -315,6 +315,32 @@ echo "192.168.200.100 myapp.local" | sudo tee -a /etc/hosts
 
 Then `http://myapp.local` works in a browser with no port numbers. sshuttle runs in the foreground — just `ctrl-c` to stop it when done.
 
+> **Note:** On corporate-managed Macs, security software may prevent sshuttle from installing its `pf` (packet filter) rules. sshuttle will report "Connected" but traffic will not route — curl times out and the browser cannot connect. If this happens, use SSH port forwarding instead.
+
+### Alternative: SSH port forwarding
+
+SSH port forwarding achieves the same result without `pf` rules. This command forwards a local port directly to the gateway IP inside the VM:
+
+```bash
+ssh -i ~/.lima/_config/user -o StrictHostKeyChecking=no \
+  -L 8080:192.168.200.100:80 \
+  127.0.0.1 -p $(limactl list --format '{{.SSHLocalPort}}' fullkube)
+```
+
+With the tunnel open, access the cluster via `localhost:8080`:
+
+```bash
+curl localhost:8080 -H "Host: myapp.local"
+```
+
+For browser testing, add a `/etc/hosts` entry pointing `myapp.local` to `127.0.0.1`:
+
+```bash
+echo "127.0.0.1 myapp.local" | sudo tee -a /etc/hosts
+```
+
+Then `http://myapp.local:8080` works in a browser. The tunnel runs in the foreground — `ctrl-c` to stop it.
+
 ---
 
 ## 8. Install k9s (optional)
