@@ -1,4 +1,4 @@
-# Kubernetes Single-Node Lab Setup
+# Kubernetes Single-Node Lab Setup 
 
 A collection of guides for standing up a single-node Kubernetes cluster on a Lima VM,
 varying only in their ingress implementation. All guides share the same base stack

@@ -1,4 +1,4 @@
-# Kubernetes Single-Node Setup
+# Kubernetes Single-Node Setup 
 
 A guide to installing a single-node Kubernetes cluster on a Lima VM, with k9s, Helm, MetalLB, and ingress support for local testing.
 

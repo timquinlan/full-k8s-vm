@@ -1,4 +1,4 @@
-# Kubernetes Single-Node Setup (Traefik Ingress)
+# Kubernetes Single-Node Setup (Traefik Ingress) 
 
 A guide to installing a single-node Kubernetes cluster on a Lima VM, with k9s, Helm, MetalLB, and Traefik ingress for local testing.
 
