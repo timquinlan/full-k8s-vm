@@ -213,7 +213,10 @@ helm install cilium cilium/cilium \
   --set k8sServicePort=6443 \
   --set l2announcements.enabled=true \
   --set gatewayAPI.enabled=true \
-  --set operator.replicas=1
+  --set operator.replicas=1 \
+  --set hubble.relay.enabled=true \
+  --set hubble.ui.enabled=true \
+  --set hubble.ui.service.type=LoadBalancer
 ```
 
 Wait for Cilium to be fully ready:
@@ -292,13 +295,18 @@ spec:
 EOF
 ```
 
-Watch for Cilium to provision a `LoadBalancer` service for the gateway:
+Watch for Cilium to provision a `LoadBalancer` service for the gateway. Cilium names it after the namespace and Gateway object, so for a Gateway named `cilium-gateway` in the `default` namespace the service will appear as `cilium-gateway-cilium-gateway`:
 
 ```bash
 kubectl get svc -w
 ```
 
-Once you see a `LoadBalancer` service named `cilium-gateway` with an IP from the `192.168.200.x` range, press `ctrl-c` and proceed.
+Once you see a `LoadBalancer` service named `cilium-gateway-cilium-gateway` with an IP from the `192.168.200.x` range, press `ctrl-c` and capture the IP:
+
+```bash
+GATEWAY_IP=$(kubectl get svc cilium-gateway-cilium-gateway -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+echo $GATEWAY_IP
+```
 
 ### Deploy a test application
 
@@ -369,10 +377,31 @@ Both should show `PROGRAMMED` / `Accepted` in their status columns.
 Verify the full stack is working:
 
 ```bash
-curl 192.168.200.100 -H "Host: myapp.local"
+curl $GATEWAY_IP -H "Host: myapp.local"
 ```
 
 A successful response will show the default nginx welcome page HTML.
+
+### Expose the Hubble UI
+
+Hubble is Cilium's built-in observability layer — it gives a real-time view of service connectivity, traffic flows, dropped packets, and DNS queries across the cluster. The Hubble UI is a web dashboard backed by Hubble Relay, which aggregates flow data from all Cilium agents.
+
+Since the Hubble UI service was created as `LoadBalancer` type, Cilium's LB-IPAM will assign it an IP from the dummy pool automatically. Find it:
+
+```bash
+kubectl get svc -n kube-system hubble-ui
+```
+
+You should see an IP from the `192.168.200.x` range in the `EXTERNAL-IP` column. Verify it is reachable:
+
+```bash
+HUBBLE_IP=$(kubectl get svc -n kube-system hubble-ui -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+curl -s -o /dev/null -w "%{http_code}" $HUBBLE_IP
+```
+
+A `200` response confirms the UI is up. Open that IP directly in a browser — no host header or path prefix required. The UI shows a service map of the cluster and a live flow log you can filter by namespace, pod, verdict (forwarded vs. dropped), or protocol.
+
+The traffic you sent in the nginx test above will already appear in the flow log. Reload the UI — you should see the request flow from the gateway through to the `test-nginx` pod visualized in the service map.
 
 ---
 
@@ -395,19 +424,19 @@ sshuttle -r 127.0.0.1:$(limactl list --format '{{.SSHLocalPort}}' fullkube) 192.
   --ssh-cmd 'ssh -i ~/.lima/_config/user -o StrictHostKeyChecking=no'
 ```
 
-Verify you can reach the gateway from your Mac:
+Verify you can reach the gateway from your Mac (substitute the `$GATEWAY_IP` value you captured earlier):
 
 ```bash
-curl 192.168.200.100 -H "Host: myapp.local"
+curl <GATEWAY_IP> -H "Host: myapp.local"
 ```
 
-Your Mac can now reach `192.168.200.100` directly. For clean demo URLs, add a `/etc/hosts` entry on your Mac:
+Your Mac can now reach the `192.168.200.x` subnet directly. For clean demo URLs, add a `/etc/hosts` entry on your Mac (substitute your actual gateway IP):
 
 ```bash
-echo "192.168.200.100 myapp.local" | sudo tee -a /etc/hosts
+echo "<GATEWAY_IP> myapp.local" | sudo tee -a /etc/hosts
 ```
 
-Then `http://myapp.local` works in a browser with no port numbers. sshuttle runs in the foreground — just `ctrl-c` to stop it when done.
+Then `http://myapp.local` works in a browser with no port numbers. The Hubble UI is available directly at its LoadBalancer IP — run `kubectl get svc -n kube-system hubble-ui` to find it, then open that IP in a browser. sshuttle runs in the foreground — just `ctrl-c` to stop it when done.
 
 > **Note:** On corporate-managed Macs, security software may prevent sshuttle from installing its `pf` (packet filter) rules. sshuttle will report "Connected" but traffic will not route — curl times out and the browser cannot connect. If this happens, use SSH port forwarding instead.
 
@@ -417,7 +446,7 @@ SSH port forwarding achieves the same result without `pf` rules. This command fo
 
 ```bash
 ssh -i ~/.lima/_config/user -o StrictHostKeyChecking=no \
-  -L 8080:192.168.200.100:80 \
+  -L 8080:<GATEWAY_IP>:80 \
   127.0.0.1 -p $(limactl list --format '{{.SSHLocalPort}}' fullkube)
 ```
 
