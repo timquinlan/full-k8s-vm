@@ -208,13 +208,6 @@ Verify the ingress controller gets an IP assigned (should show an IP from the `1
 kubectl get svc -n traefik
 ```
 
-Traefik also exposes a dashboard on port 9000 of the pod — you can access it with a quick port-forward if you want a visual overview of routes and middleware:
-
-```bash
-kubectl port-forward -n traefik $(kubectl get pods -n traefik -o name) 8080:8080
-# Then open http://localhost:8080/dashboard/ in your browser
-```
-
 ### Deploy a test application
 
 Deploy a vanilla nginx instance and wire it up through Traefik to verify the full stack is working:
@@ -280,6 +273,41 @@ curl 192.168.200.100 -H "Host: myapp.local"
 
 A successful response will show the default nginx welcome page HTML.
 
+### Expose the Traefik dashboard
+
+The Traefik dashboard gives a live view of routers, services, and middleware — useful for demos. Traefik's `api.insecure=true` flag (set during install) makes the API available internally; the `IngressRoute` CRD routes external traffic to it via the LoadBalancer IP.
+
+Create an `IngressRoute` that serves the dashboard at `traefik.local`:
+
+```bash
+cat <<'EOF' | kubectl apply -f -
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: traefik-dashboard
+  namespace: traefik
+spec:
+  entryPoints:
+    - web
+  routes:
+    - match: Host(`traefik.local`) && (PathPrefix(`/dashboard`) || PathPrefix(`/api`))
+      kind: Rule
+      services:
+        - name: api@internal
+          kind: TraefikService
+EOF
+```
+
+Verify the dashboard route is working:
+
+```bash
+curl -s 192.168.200.100/api/http/routers -H "Host: traefik.local"
+```
+
+A successful response returns a JSON array of HTTP routers — you should see entries for both the `traefik-dashboard` IngressRoute and the `test-nginx` Ingress. Open `http://traefik.local/dashboard/` in a browser to see the full UI (the trailing `/` is required).
+
+> **Note:** `/api/overview` was removed in Traefik v3. Use `/api/http/routers` (or `/api/rawdata` for the full config dump) instead.
+
 ---
 
 ## 7. Accessing the Cluster from Your Laptop (sshuttle)
@@ -311,9 +339,10 @@ Your Mac can now reach `192.168.200.100` directly. For clean demo URLs, add a `/
 
 ```bash
 echo "192.168.200.100 myapp.local" | sudo tee -a /etc/hosts
+echo "192.168.200.100 traefik.local" | sudo tee -a /etc/hosts
 ```
 
-Then `http://myapp.local` works in a browser with no port numbers. sshuttle runs in the foreground — just `ctrl-c` to stop it when done.
+Then `http://myapp.local` and 'http://traefik.local/dashbard/` work in a browser with no port numbers. sshuttle runs in the foreground — just `ctrl-c` to stop it when done.
 
 > **Note:** On corporate-managed Macs, security software may prevent sshuttle from installing its `pf` (packet filter) rules. sshuttle will report "Connected" but traffic will not route — curl times out and the browser cannot connect. If this happens, use SSH port forwarding instead.
 

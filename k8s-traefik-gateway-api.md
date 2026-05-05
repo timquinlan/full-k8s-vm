@@ -223,11 +223,11 @@ kubectl get svc -n traefik
 
 The `traefik` service should show an IP from the `192.168.200.x` range rather than `<pending>`.
 
-Traefik also exposes a dashboard on port 8080 of the pod — you can access it with a quick port-forward if you want a visual overview of routes and middleware:
+Traefik also exposes a dashboard on port 9000 of the pod — you can access it with a quick port-forward if you want a visual overview of routes and middleware:
 
 ```bash
-kubectl port-forward -n traefik $(kubectl get pods -n traefik -o name) 8080:8080
-# Then open http://localhost:8080/dashboard/ in your browser
+kubectl port-forward -n traefik $(kubectl get pods -n traefik -o name) 9000:9000
+# Then open http://localhost:9000/dashboard/ in your browser
 ```
 
 Traefik will also have automatically created a `GatewayClass` named `traefik`. Confirm it exists and is accepted:
@@ -326,6 +326,39 @@ curl 192.168.200.100 -H "Host: myapp.local"
 
 A successful response will show the default nginx welcome page HTML.
 
+### Expose the Traefik dashboard
+
+The Traefik dashboard gives a live view of routers, services, and middleware. Gateway API `HTTPRoute` backends must be real Kubernetes services — `api@internal` is not available as a backend ref, and routing traffic back through Traefik's own port 9000 creates a self-referential loop that returns 404. The clean solution is Traefik's native `IngressRoute` CRD, which has direct access to `api@internal`. The `kubernetesCRD` provider is active alongside `kubernetesGateway` by default, so both resource types work in this setup.
+
+Create an `IngressRoute` that serves the dashboard at `traefik.local`:
+
+```bash
+cat <<'EOF' | kubectl apply -f -
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: traefik-dashboard
+  namespace: traefik
+spec:
+  entryPoints:
+    - web
+  routes:
+    - match: Host(`traefik.local`) && (PathPrefix(`/dashboard`) || PathPrefix(`/api`))
+      kind: Rule
+      services:
+        - name: api@internal
+          kind: TraefikService
+EOF
+```
+
+Verify the dashboard route is working:
+
+```bash
+curl -s 192.168.200.100/api/http/routers -H "Host: traefik.local"
+```
+
+A successful response returns a JSON array of HTTP routers. Open `http://traefik.local/dashboard/` in a browser to see the full UI (the trailing `/` is required).
+
 ---
 
 ## 7. Accessing the Cluster from Your Laptop (sshuttle)
@@ -353,13 +386,14 @@ Verify you can reach the gateway from your Mac:
 curl 192.168.200.100 -H "Host: myapp.local"
 ```
 
-Your Mac can now reach `192.168.200.100` directly. For clean demo URLs, add a `/etc/hosts` entry on your Mac:
+Your Mac can now reach `192.168.200.100` directly. For clean demo URLs, add `/etc/hosts` entries on your Mac:
 
 ```bash
 echo "192.168.200.100 myapp.local" | sudo tee -a /etc/hosts
+echo "192.168.200.100 traefik.local" | sudo tee -a /etc/hosts
 ```
 
-Then `http://myapp.local` works in a browser with no port numbers. sshuttle runs in the foreground — just `ctrl-c` to stop it when done.
+Then `http://myapp.local` and `http://traefik.local/dashboard/` work in a browser with no port numbers. sshuttle runs in the foreground — just `ctrl-c` to stop it when done.
 
 > **Note:** On corporate-managed Macs, security software may prevent sshuttle from installing its `pf` (packet filter) rules. sshuttle will report "Connected" but traffic will not route — curl times out and the browser cannot connect. If this happens, use SSH port forwarding instead.
 
@@ -379,13 +413,14 @@ With the tunnel open, access the cluster via `localhost:8080`:
 curl localhost:8080 -H "Host: myapp.local"
 ```
 
-For browser testing, add a `/etc/hosts` entry pointing `myapp.local` to `127.0.0.1`:
+For browser testing, add `/etc/hosts` entries pointing to `127.0.0.1`:
 
 ```bash
 echo "127.0.0.1 myapp.local" | sudo tee -a /etc/hosts
+echo "127.0.0.1 traefik.local" | sudo tee -a /etc/hosts
 ```
 
-Then `http://myapp.local:8080` works in a browser. The tunnel runs in the foreground — `ctrl-c` to stop it.
+Then `http://myapp.local:8080` and `http://traefik.local:8080/dashboard/` work in a browser. The tunnel runs in the foreground — `ctrl-c` to stop it.
 
 ---
 
