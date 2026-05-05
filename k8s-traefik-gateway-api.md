@@ -223,13 +223,6 @@ kubectl get svc -n traefik
 
 The `traefik` service should show an IP from the `192.168.200.x` range rather than `<pending>`.
 
-Traefik also exposes a dashboard on port 9000 of the pod — you can access it with a quick port-forward if you want a visual overview of routes and middleware:
-
-```bash
-kubectl port-forward -n traefik $(kubectl get pods -n traefik -o name) 9000:9000
-# Then open http://localhost:9000/dashboard/ in your browser
-```
-
 Traefik will also have automatically created a `GatewayClass` named `traefik`. Confirm it exists and is accepted:
 
 ```bash
