@@ -424,19 +424,21 @@ sshuttle -r 127.0.0.1:$(limactl list --format '{{.SSHLocalPort}}' fullkube) 192.
   --ssh-cmd 'ssh -i ~/.lima/_config/user -o StrictHostKeyChecking=no'
 ```
 
-Verify you can reach the gateway from your Mac (substitute the `$GATEWAY_IP` value you captured earlier):
+Verify you can reach the gateway and hubble applications from your Mac (substitute the `$GATEWAY_IP` and `$HUBBLE_IP`values you captured earlier):
 
 ```bash
 curl <GATEWAY_IP> -H "Host: myapp.local"
+curl <HUBBLE_IP>
 ```
 
 Your Mac can now reach the `192.168.200.x` subnet directly. For clean demo URLs, add a `/etc/hosts` entry on your Mac (substitute your actual gateway IP):
 
 ```bash
 echo "<GATEWAY_IP> myapp.local" | sudo tee -a /etc/hosts
+echo "<HUBBLE_IP> hubble.local" | sudo tee -a /etc/hosts
 ```
 
-Then `http://myapp.local` works in a browser with no port numbers. The Hubble UI is available directly at its LoadBalancer IP — run `kubectl get svc -n kube-system hubble-ui` to find it, then open that IP in a browser. sshuttle runs in the foreground — just `ctrl-c` to stop it when done.
+Then `http://myapp.local` and `http://hubble.local` work in a browser with no port numbers. sshuttle runs in the foreground — just `ctrl-c` to stop it when done.
 
 > **Note:** On corporate-managed Macs, security software may prevent sshuttle from installing its `pf` (packet filter) rules. sshuttle will report "Connected" but traffic will not route — curl times out and the browser cannot connect. If this happens, use SSH port forwarding instead.
 
